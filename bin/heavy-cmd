@@ -1,0 +1,6 @@
+#!/usr/bin/env -S node --disable-warning=ExperimentalWarning
+// Runs the build `npm run build` leaves in dist/; a checkout not built yet runs its source, which Node strips of its types.
+import { existsSync } from "node:fs";
+
+const built = new URL("../dist/main.js", import.meta.url);
+await import(existsSync(built) ? built.href : new URL("../src/main.ts", import.meta.url).href);
