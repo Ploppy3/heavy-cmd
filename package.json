@@ -1,0 +1,31 @@
+{
+  "name": "heavy-cmd",
+  "version": "0.1.0",
+  "description": "Run a heavy command once the machine has room: one machine-wide queue for every agent and project.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "heavy-cmd": "./bin/heavy-cmd"
+  },
+  "engines": {
+    "node": ">=26"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ploppy3/heavy-cmd.git"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run build && npm run typecheck && npm test && npm run check:lines",
+    "check:lines": "node scripts/check-file-length.ts",
+    "pack:release": "node scripts/pack.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
