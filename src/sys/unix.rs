@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 pub const SHELL: &str = "sh";
 
 /// The machine's CPU time since boot, from `/proc/stat`'s first line: busy is user, nice, system and
-/// irq; idle is idle; in ms, as Node's `os.cpus()` counts them, so both read one heavy.db alike.
+/// irq; idle is idle; in ms.
 pub fn cpu_times() -> CpuTimes {
     let text = std::fs::read_to_string("/proc/stat").unwrap_or_default();
     let line = text.lines().find(|line| line.starts_with("cpu ")).unwrap_or("");

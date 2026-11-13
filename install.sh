@@ -58,8 +58,6 @@ else
   mv -f "$work/heavy-cmd/bin/heavy-cmd" "$bin"
 fi
 : >"$INSTALL_DIR/.heavy-cmd-install"
-# What the Node releases (v0.1) installed beside it goes.
-rm -rf "$INSTALL_DIR/versions" "$INSTALL_DIR/current"
 
 link="$BIN_DIR/heavy-cmd"
 if [ -e "$link" ] && [ ! -L "$link" ]; then

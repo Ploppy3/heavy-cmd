@@ -26,7 +26,7 @@ irm https://raw.githubusercontent.com/Ploppy3/heavy-cmd/main/install.ps1 | iex
 
 It puts the newest release in `%LOCALAPPDATA%\Programs\heavy-cmd\bin\heavy-cmd.exe` and that `bin` folder on your PATH; `HEAVY_CMD_INSTALL_DIR` overrides the folder. To remove it: delete that folder, its PATH entry, and `%LOCALAPPDATA%\heavy-cmd` for its record.
 
-Run either again at will: it changes nothing when the newest release is already there. An install from the Node releases (v0.1) is replaced in place by `install.sh`.
+Run either again at will: it changes nothing when the newest release is already there.
 
 ## Usage
 
@@ -93,7 +93,7 @@ auto_update = on  # on or off
 
 The env overrides the file — `HEAVY_CMD_CPU`, `HEAVY_CMD_WAIT`, `HEAVY_CMD_AUTO_UPDATE` (empty is unset) — and `--wait` overrides the env. A value out of its bounds, an unknown key or a line that is not `key = value` is refused, naming where it is and why, and nothing runs (exit `78`).
 
-The queue and its record, `heavy.db` (SQLite), live in `$HEAVY_CMD_HOME`, else `${XDG_STATE_HOME:-~/.local/state}/heavy-cmd` (`%LOCALAPPDATA%\heavy-cmd` on Windows). Everyone who should share a queue must share this folder: by default, every heavy-cmd of one user. The Node releases (v0.1) kept the same file, the same way: both can share one queue.
+The queue and its record, `heavy.db` (SQLite), live in `$HEAVY_CMD_HOME`, else `${XDG_STATE_HOME:-~/.local/state}/heavy-cmd` (`%LOCALAPPDATA%\heavy-cmd` on Windows). Everyone who should share a queue must share this folder: by default, every heavy-cmd of one user.
 
 ## Exit codes
 
