@@ -1,8 +1,7 @@
 #!/bin/sh
-# Builds the release assets into dist/, in the toolchain (scripts/dev): heavy-cmd-linux-x86_64.tar.gz,
-# a static (musl) binary, and heavy-cmd-windows-x86_64.zip; each holds heavy-cmd/bin/, README.md and
-# LICENSE. Then checks each, unpacked as an install would, runs and names Cargo.toml's version (the
-# Windows one under Wine).
+# Builds the release assets into dist/, in the toolchain (scripts/dev): heavy-cmd-linux-x86_64, a static
+# (musl) binary, and heavy-cmd-windows-x86_64.exe. Then checks each runs and names Cargo.toml's version
+# (the Windows one under Wine).
 #
 #   heavy-cmd -- scripts/pack
 set -eu
@@ -13,25 +12,14 @@ windows=x86_64-pc-windows-gnu
 cargo build --locked --release --target $linux
 cargo build --locked --release --target $windows
 rm -rf dist
-stage() {
-  rm -rf dist/stage
-  mkdir -p dist/stage/heavy-cmd/bin
-  cp README.md LICENSE dist/stage/heavy-cmd/
-  cp "$1" dist/stage/heavy-cmd/bin/
-}
-stage target/$linux/release/heavy-cmd
-tar -czf dist/heavy-cmd-linux-x86_64.tar.gz -C dist/stage heavy-cmd
-stage target/$windows/release/heavy-cmd.exe
-(cd dist/stage && zip -qr ../heavy-cmd-windows-x86_64.zip heavy-cmd)
-rm -rf dist/stage
+mkdir dist
+cp target/$linux/release/heavy-cmd dist/heavy-cmd-linux-x86_64
+cp target/$windows/release/heavy-cmd.exe dist/heavy-cmd-windows-x86_64.exe
 
-check=$(mktemp -d)
-tar -xzf dist/heavy-cmd-linux-x86_64.tar.gz -C "$check"
-said=$("$check/heavy-cmd/bin/heavy-cmd" --version)
+# Run with nothing to run, each prints its usage, whose first line names its version.
+said=$(dist/heavy-cmd-linux-x86_64 2>&1 | head -n 1 | cut -d: -f1)
 [ "$said" = "heavy-cmd v$version" ] || { echo "pack: the Linux binary says \"$said\"" >&2; exit 1; }
-unzip -q dist/heavy-cmd-windows-x86_64.zip -d "$check/windows"
-said=$(wine "$check/windows/heavy-cmd/bin/heavy-cmd.exe" --version 2>/dev/null | tr -d "\r")
+said=$(wine dist/heavy-cmd-windows-x86_64.exe 2>&1 | tr -d "\r" | grep "^heavy-cmd v" | head -n 1 | cut -d: -f1)
 [ "$said" = "heavy-cmd v$version" ] || { echo "pack: the Windows binary says \"$said\"" >&2; exit 1; }
-rm -rf "$check"
 ls -l dist
 '

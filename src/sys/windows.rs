@@ -1,9 +1,6 @@
 use super::STOP;
 use crate::cpu::CpuTimes;
 use crate::format::now_ms;
-use std::ffi::OsString;
-use std::io;
-use std::os::windows::ffi::OsStringExt;
 use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -15,13 +12,10 @@ use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation, SetInformationJobObject,
 };
-use windows_sys::Win32::System::SystemInformation::{ComputerNameDnsHostname, GetComputerNameExW, GetTickCount64};
-use windows_sys::Win32::System::Threading::{
-    CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS, GetExitCodeProcess, GetSystemTimes, OpenProcess,
-    PROCESS_QUERY_LIMITED_INFORMATION,
-};
+use windows_sys::Win32::System::SystemInformation::GetTickCount64;
+use windows_sys::Win32::System::Threading::{GetExitCodeProcess, GetSystemTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 
-/// What a shell line runs through, as the record and its messages name it.
+/// What a shell line runs through, as its messages name it.
 pub const SHELL: &str = "cmd.exe";
 
 /// The signal numbers the console's events stand for, as Windows' C runtime numbers them.
@@ -69,16 +63,6 @@ pub fn pid_alive(pid: u32) -> bool {
     }
 }
 
-pub fn hostname() -> String {
-    let mut buffer = [0u16; 256];
-    let mut len = buffer.len() as u32;
-    // SAFETY: the buffer is as long as `len` says.
-    if unsafe { GetComputerNameExW(ComputerNameDnsHostname, buffer.as_mut_ptr(), &mut len) } == 0 {
-        return std::env::var("COMPUTERNAME").unwrap_or_default();
-    }
-    OsString::from_wide(&buffer[..len as usize]).to_string_lossy().into_owned()
-}
-
 /// A shell line, as `cmd.exe /d /s /c "<line>"` runs it: the line reaches cmd as it was written.
 pub fn shell(line: &str) -> Command {
     let mut command = Command::new(std::env::var_os("ComSpec").unwrap_or_else(|| SHELL.into()));
@@ -120,17 +104,6 @@ pub fn exit_of(status: ExitStatus) -> i32 {
     status.code().unwrap_or(1)
 }
 
-/// Starts `command` with no console and out of this one's job, so that neither ending ends it. A job
-/// that allows no breakaway keeps it.
-pub fn detach(command: &mut Command) {
-    command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB);
-}
-
-/// `detach` for a job that allows no breakaway.
-pub fn detach_in_job(command: &mut Command) {
-    command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
-}
-
 /// Whether a command runs: the console's events are then its own.
 static CHILD: AtomicBool = AtomicBool::new(false);
 
@@ -145,7 +118,7 @@ unsafe extern "system" fn on_event(event: u32) -> i32 {
         _ => SIGHUP,
     });
     if event >= CTRL_CLOSE_EVENT {
-        // Windows ends the process once this returns: the wait records its stop first.
+        // Windows ends the process once this returns: the wait ends first, and heavy-cmd exits as the event says.
         std::thread::sleep(std::time::Duration::from_secs(4));
     }
     1
@@ -207,33 +180,4 @@ impl Drop for Running {
 /// Ends this process as a console event ended the wait: `128 + n`, as on Linux.
 pub fn die_by(signal: i32) -> ! {
     std::process::exit(128 + signal)
-}
-
-/// Moves `path` out of the way: removed, or renamed aside while it still runs, as Windows allows.
-fn discard(path: &Path) -> io::Result<()> {
-    if !path.exists() || std::fs::remove_file(path).is_ok() {
-        return Ok(());
-    }
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    std::fs::rename(path, path.with_file_name(format!(".discarded-{}-{nanos}.exe", std::process::id())))
-}
-
-/// Puts `new` in `bin`'s place, keeping the one before as `old`. A running program cannot be replaced
-/// on Windows, but it can be renamed: `bin` becomes `old`, then `new` becomes `bin`; on a failure
-/// between the two, `bin` comes back.
-pub fn switch(bin: &Path, new: &Path, old: &Path) -> io::Result<()> {
-    if let Some(dir) = bin.parent() {
-        for entry in std::fs::read_dir(dir)?.flatten() {
-            if entry.file_name().to_string_lossy().starts_with(".discarded-") {
-                let _ = std::fs::remove_file(entry.path());
-            }
-        }
-    }
-    discard(old)?;
-    if bin.exists() {
-        std::fs::rename(bin, old)?;
-    }
-    std::fs::rename(new, bin).inspect_err(|_| {
-        let _ = std::fs::rename(old, bin);
-    })
 }
