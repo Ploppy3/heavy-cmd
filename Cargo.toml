@@ -9,6 +9,7 @@ rust-version = "1.99"
 publish = false
 
 [dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 rusqlite = { version = "0.42.0", features = ["bundled"] }
 
 [target.'cfg(unix)'.dependencies]

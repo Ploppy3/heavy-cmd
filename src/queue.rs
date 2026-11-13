@@ -1,6 +1,7 @@
 use crate::cpu::{self, CpuTimes, SAMPLES};
 use crate::fail::{Fail, Result};
-use crate::format::now_ms;
+use crate::format::{now_ms, warn};
+use crate::logs::{self, RUNS, Run};
 use crate::sys::{self, Stop};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::{Path, PathBuf};
@@ -103,7 +104,7 @@ impl Heavy {
         db.busy_timeout(Duration::from_secs(5))?;
         // Pids and CPU samples need not outlive a power loss.
         db.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
-        db.execute_batch(&format!("{SCHEMA}{SAMPLES};"))?;
+        db.execute_batch(&format!("{SCHEMA}{SAMPLES};{RUNS}"))?;
         Ok(Heavy { db, ports })
     }
 
@@ -203,6 +204,13 @@ impl Heavy {
             }
             told = true;
             pause(options.poll_ms, options.stop)?;
+        }
+    }
+
+    /// Keeps `run` in the record; a write that fails says one line on stderr, and nothing else.
+    pub fn record(&self, run: &Run) {
+        if let Err(error) = logs::record(&self.db, run, self.now()) {
+            warn(&format!("heavy-cmd: the run was not recorded: {error}"));
         }
     }
 
