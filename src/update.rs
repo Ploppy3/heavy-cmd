@@ -13,11 +13,12 @@ use std::time::{Duration, Instant};
 /// Where the newest release is read from; `HEAVY_CMD_RELEASES_API` points elsewhere, a mirror or a test's server.
 pub const RELEASES_API: &str = "https://api.github.com/repos/Ploppy3/heavy-cmd/releases/latest";
 
-/// A release by its tag, `v0.2.0`, and the URL of this build's asset in it.
+/// A release by its tag, `v0.2.0`, and the URL of this build's asset in it: None when it has none,
+/// as a release before this system's builds.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Release {
     pub tag: String,
-    pub url: String,
+    pub url: Option<String>,
 }
 
 /// Reads the newest release.
@@ -83,8 +84,7 @@ pub fn latest_release(api: &str) -> Result<Release> {
     let name = asset();
     let assets = release["assets"].as_array().map(Vec::as_slice).unwrap_or_default();
     let url = assets.iter().find(|each| each["name"] == name.as_str()).and_then(|each| each["browser_download_url"].as_str());
-    let url = url.ok_or_else(|| other(format!("release {tag} has no {name}")))?;
-    Ok(Release { tag, url: url.to_string() })
+    Ok(Release { tag, url: url.map(str::to_string) })
 }
 
 /// The releases on GitHub, or the API `HEAVY_CMD_RELEASES_API` names, through curl.
@@ -165,14 +165,14 @@ pub fn old_of(bin: &Path) -> PathBuf {
 
 /// Downloads and unpacks `release` beside the binary in use in `dir`, and only once its own `--version`
 /// names it puts it in `bin`'s place, keeping the one before. A failure leaves `bin` as it was.
-fn install_release(dir: &Path, bin: &Path, release: &Release, ports: &UpdatePorts) -> Result<()> {
+fn install_release(dir: &Path, bin: &Path, release: &Release, url: &str, ports: &UpdatePorts) -> Result<()> {
     let work = dir.join(format!(".update-{}-{}", release.tag, std::process::id()));
     let _ = fs::remove_dir_all(&work);
     let unpacked = work.join("heavy-cmd");
     fs::create_dir_all(&unpacked)?;
     let done = (|| {
         let archive = work.join(asset());
-        (ports.download)(&release.url, &archive)?;
+        (ports.download)(url, &archive)?;
         unpack(&archive, &unpacked)?;
         let new = unpacked.join("bin").join(exe_name());
         let said = version_of(&new);
@@ -187,7 +187,7 @@ fn install_release(dir: &Path, bin: &Path, release: &Release, ports: &UpdatePort
 
 /// `heavy-cmd update [--check]`: moves `install` from `current`, its version, to the newest release,
 /// never back to an older one; `check` only says whether a newer one is out. A dev build, or anything
-/// install.sh or install.ps1 did not make, is refused.
+/// install.sh or install.ps1 did not make, is refused; so is a newer release with no asset for this system.
 pub fn update(ports: &UpdatePorts, check: bool, install: &Install, current: &str, say: &mut dyn FnMut(&str)) -> Result<()> {
     let (dir, bin) = match install {
         Install::Dev { root } => {
@@ -204,12 +204,13 @@ pub fn update(ports: &UpdatePorts, check: bool, install: &Install, current: &str
         say(&format!("heavy-cmd {current} is up to date (the newest release is {})", release.tag));
         return Ok(());
     }
+    let url = release.url.as_deref().ok_or_else(|| other(format!("release {} has no {}", release.tag, asset())))?;
     if check {
         say(&format!("heavy-cmd {} is out; this is {current}: heavy-cmd update installs it", release.tag));
         return Ok(());
     }
     locked(dir, || {
-        install_release(dir, bin, &release, ports)
+        install_release(dir, bin, &release, url, ports)
             .map_err(|error| other(format!("update to {} failed, {current} kept: {error}", release.tag)))
     })?;
     say(&format!("heavy-cmd updated from {current} to {}", release.tag));

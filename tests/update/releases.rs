@@ -28,7 +28,7 @@ fn installed(dir: &TempDir, tag: &str) -> Install {
 fn ports(tag: &str, tarball: PathBuf, downloads: &Rc<RefCell<Vec<String>>>) -> UpdatePorts {
     let (tag, downloads) = (tag.to_string(), downloads.clone());
     UpdatePorts {
-        latest: Box::new(move || Ok(Release { tag: tag.clone(), url: tarball.display().to_string() })),
+        latest: Box::new(move || Ok(Release { tag: tag.clone(), url: Some(tarball.display().to_string()) })),
         download: Box::new(move |url, file| {
             downloads.borrow_mut().push(url.to_string());
             std::fs::copy(url, file).map(|_| ()).map_err(|error| other(error.to_string()))
@@ -153,8 +153,13 @@ fn reads_the_newest_release_and_downloads_its_asset_over_http_as_from_githubs_ap
     let api = |path: &str| github_ports(&Env::of(&[("HEAVY_CMD_RELEASES_API", &format!("{}{path}", releases.base))]));
     run(&api("/latest"), false, &install, "v0.1.0", &mut Vec::new()).unwrap();
     assert_eq!(says(&bin_of(&install)), "heavy-cmd v0.2.0");
+    // A release with no asset for this system is up to date when it is no newer, and refused when it is.
+    let mut said = Vec::new();
+    run(&api("/no-asset"), true, &install, "v0.2.0", &mut said).unwrap();
+    assert_eq!(said, ["heavy-cmd v0.2.0 is up to date (the newest release is v0.2.0)"]);
+    let refused = run(&api("/no-asset"), true, &install, "v0.1.0", &mut said).unwrap_err().to_string();
+    assert_eq!(refused, format!("release v0.2.0 has no {}", heavy_cmd::install::asset()));
     let latest = |path: &str| (api(path).latest)().unwrap_err().to_string();
-    assert_eq!(latest("/no-asset"), format!("release v0.2.0 has no {}", heavy_cmd::install::asset()));
     let gone = latest("/gone");
     assert!(gone.starts_with(&format!("{}/gone: ", releases.base)) && gone.contains("404"), "{gone}");
     let refused = (github_ports(&Env::of(&[("HEAVY_CMD_RELEASES_API", "http://127.0.0.1:1/latest")])).latest)().unwrap_err().to_string();
