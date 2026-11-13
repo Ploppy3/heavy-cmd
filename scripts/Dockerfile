@@ -3,7 +3,7 @@
 FROM rust:1.99.1-slim-trixie
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64 musl-tools wine wine64 git curl ca-certificates zip unzip \
+ && apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64 musl-tools wine wine64 ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && rustup target add x86_64-unknown-linux-musl x86_64-pc-windows-gnu \
  && rustup component add clippy rustfmt

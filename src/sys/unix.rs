@@ -2,12 +2,11 @@ use super::STOP;
 use crate::cpu::CpuTimes;
 use crate::format::now_ms;
 use std::io;
-use std::os::unix::process::{CommandExt, ExitStatusExt};
-use std::path::Path;
+use std::os::unix::process::ExitStatusExt;
 use std::process::{Child, Command, ExitStatus};
 use std::sync::atomic::{AtomicI32, Ordering};
 
-/// What a shell line runs through, as the record and its messages name it.
+/// What a shell line runs through, as its messages name it.
 pub const SHELL: &str = "sh";
 
 /// The machine's CPU time since boot, from `/proc/stat`'s first line: busy is user, nice, system and
@@ -41,16 +40,6 @@ pub fn pid_alive(pid: u32) -> bool {
     (unsafe { libc::kill(pid, 0) } == 0) || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
-pub fn hostname() -> String {
-    let mut buffer = [0u8; 256];
-    // SAFETY: the buffer is as long as its length says, and gethostname writes at most that.
-    if unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) } != 0 {
-        return String::new();
-    }
-    let end = buffer.iter().position(|b| *b == 0).unwrap_or(buffer.len());
-    String::from_utf8_lossy(&buffer[..end]).into_owned()
-}
-
 /// A shell line, as `sh -c` runs it.
 pub fn shell(line: &str) -> Command {
     let mut command = Command::new(SHELL);
@@ -68,17 +57,6 @@ pub fn program(file: &str, args: &[String]) -> Command {
 /// The exit of a command as a shell reports it: its code, `128 + n` when signal `n` ended it.
 pub fn exit_of(status: ExitStatus) -> i32 {
     status.code().or_else(|| status.signal().map(|signal| 128 + signal)).unwrap_or(128)
-}
-
-/// Starts `command` in a session of its own, so the terminal's signals and its closing never reach it.
-pub fn detach(command: &mut Command) {
-    // SAFETY: setsid is async-signal-safe, as a pre_exec hook must be.
-    unsafe {
-        command.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
-    }
 }
 
 /// The signals heavy-cmd acts on: while it waits they stop the wait, once its command runs they are the command's.
@@ -153,13 +131,4 @@ pub fn die_by(signal: i32) -> ! {
         libc::raise(signal);
     }
     std::process::exit(128 + signal)
-}
-
-/// Puts `new` in `bin`'s place with one rename, keeping the one before as `old`.
-pub fn switch(bin: &Path, new: &Path, old: &Path) -> io::Result<()> {
-    let _ = std::fs::remove_file(old);
-    if bin.exists() {
-        std::fs::hard_link(bin, old).or_else(|_| std::fs::copy(bin, old).map(|_| ()))?;
-    }
-    std::fs::rename(new, bin)
 }
