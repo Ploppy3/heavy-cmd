@@ -1,0 +1,14 @@
+#!/bin/sh
+# Every check a change passes before it counts as done, in the toolchain (scripts/dev): the format,
+# clippy and the suites, for Linux and for Windows, whose suites run under Wine.
+#
+#   heavy-cmd -- scripts/check
+set -eu
+exec "$(dirname "$0")/dev" sh -euc '
+windows=x86_64-pc-windows-gnu
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo clippy --locked --all-targets --target $windows -- -D warnings
+cargo test --locked --no-fail-fast
+cargo test --locked --no-fail-fast --target $windows
+'
