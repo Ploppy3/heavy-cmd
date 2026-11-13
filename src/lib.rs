@@ -8,9 +8,11 @@ compile_error!("heavy-cmd runs on Linux and Windows");
 pub mod cpu;
 pub mod fail;
 pub mod format;
+pub mod logs;
 pub mod queue;
 pub mod run;
 pub mod sys;
 
-/// The crate the tests reach heavy.db through.
+/// The crates the tests reach heavy.db and the clock through.
+pub use chrono;
 pub use rusqlite;

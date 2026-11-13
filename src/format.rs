@@ -19,7 +19,12 @@ pub fn duration(ms: i64) -> String {
     if m % 60 != 0 { format!("{}h {}m", m / 60, m % 60) } else { format!("{}h", m / 60) }
 }
 
-/// One line on stderr; a closed stderr is not heavy-cmd's failure.
+/// One line on stdout; a closed stdout is not heavy-cmd's failure.
+pub fn say(text: &str) {
+    let _ = writeln!(std::io::stdout(), "{text}");
+}
+
+/// One line on stderr, as `say`.
 pub fn warn(text: &str) {
     let _ = writeln!(std::io::stderr(), "{text}");
 }

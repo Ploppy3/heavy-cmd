@@ -202,7 +202,7 @@ fn run_heavy_one_argument_is_a_shell_line_its_exit_is_passed_on_and_it_stops_cou
     let world = World::new();
     let h = world.heavy();
     let shell = line(r#"test -n "$HEAVY_CMD_ID" && exit 3"#, "if defined HEAVY_CMD_ID exit 3");
-    assert_eq!(run_heavy(&h, &[shell], &mut options()).unwrap(), 3);
+    assert_eq!(run_heavy(&h, &[shell], &mut options(), false).unwrap(), 3);
     assert!(h.status().unwrap().running.is_empty());
 }
 
@@ -210,7 +210,7 @@ fn run_heavy_one_argument_is_a_shell_line_its_exit_is_passed_on_and_it_stops_cou
 fn run_heavy_several_arguments_run_the_program_directly() {
     let world = World::new();
     let argv: Vec<String> = if cfg!(windows) { ["cmd", "/c", "exit 4"] } else { ["sh", "-c", "exit 4"] }.map(String::from).to_vec();
-    assert_eq!(run_heavy(&world.heavy(), &argv, &mut options()).unwrap(), 4);
+    assert_eq!(run_heavy(&world.heavy(), &argv, &mut options(), false).unwrap(), 4);
 }
 
 #[test]
@@ -218,7 +218,7 @@ fn run_heavy_a_program_that_cannot_start_exits_127_and_stops_counting() {
     let world = World::new();
     let h = world.heavy();
     let argv = ["heavy-cmd-no-such-program".to_string(), "x".to_string()];
-    assert_eq!(run_heavy(&h, &argv, &mut options()).unwrap(), 127);
+    assert_eq!(run_heavy(&h, &argv, &mut options(), false).unwrap(), 127);
     assert!(h.status().unwrap().running.is_empty());
 }
 
@@ -229,7 +229,7 @@ fn run_heavy_a_command_that_could_not_start_in_time_is_an_error_and_never_runs()
     world.claim(&h, 101, |_| {}).unwrap();
     let ran = world.dir.join("ran");
     let shell = line(&format!("touch '{}'", ran.display()), &format!("type nul > \"{}\"", ran.display()));
-    busy(run_heavy(&h, &[shell], &mut options()));
+    busy(run_heavy(&h, &[shell], &mut options(), false));
     assert_eq!(pids(&h.status().unwrap()), (vec![101], vec![]));
     assert!(!ran.exists());
 }

@@ -1,5 +1,5 @@
-//! `heavy-cmd` as a process: its one command line, exits, nesting, a signal while waiting, and the smoke
-//! test: two commands in a temp home, the second waiting out the 10 s gap.
+//! `heavy-cmd` as a process: its command lines, exits, nesting, a signal while waiting, and the smoke
+//! test: two commands in a temp home, the second waiting out the 10 s gap, and `logs` showing both.
 
 mod common;
 
@@ -25,15 +25,17 @@ fn hold(dir: &Path) -> Heavy {
 }
 
 #[test]
-fn anything_but_dashdash_and_a_command_prints_the_usage_and_exits_64() {
+fn anything_but_a_command_or_logs_prints_the_usage_and_exits_64() {
     let dir = TempDir::new("heavy-cmd-cli");
-    for args in [&[][..], &["--"], &["npm", "test"], &["--version"]] {
+    for args in [&[][..], &["--"], &["npm", "test"], &["--version"], &["logs", "--json"]] {
         let out = cli(dir.path(), args, &[]);
         assert_eq!(out.status.code(), Some(64), "{args:?}");
         let usage = text(&out.stderr);
         assert!(usage.starts_with(&format!("heavy-cmd v{}: ", env!("CARGO_PKG_VERSION"))), "{usage}");
-        assert!(usage.contains("\n  heavy-cmd -- <command>...\n"), "{usage}");
+        assert!(usage.contains("\n  heavy-cmd -- <command>...\n") && usage.contains("\n  heavy-cmd logs\n"), "{usage}");
     }
+    let out = cli(dir.path(), &["logs"], &[]);
+    assert_eq!((out.status.code(), text(&out.stdout)), (Some(0), "no heavy command recorded\n".into()));
     assert!(!state(dir.path()).exists());
 }
 
@@ -100,13 +102,20 @@ fn a_bare_program_name_is_found_with_pathext_so_a_batch_file_runs() {
 }
 
 #[test]
-fn smoke_a_second_command_waits_out_the_gap_after_the_first() {
+fn smoke_a_second_command_waits_out_the_gap_after_the_first_and_logs_shows_both() {
     let dir = TempDir::new("heavy-cmd-cli");
-    let first = cli(dir.path(), &["--", "exit 0"], &[]);
+    let first = cli(dir.path(), &["--", "echo first"], &[]);
     assert_eq!((first.status.code(), text(&first.stderr)), (Some(0), String::new()));
     let before = Instant::now();
-    let second = cli(dir.path(), &["--", "exit 0"], &[]);
+    let second = cli(dir.path(), &["--", "echo second"], &[]);
     assert!(before.elapsed().as_millis() >= 8_000);
     assert_eq!(second.status.code(), Some(0));
     assert!(text(&second.stderr).starts_with("heavy-cmd: every heavy slot is busy: 0 running"));
+    let out = text(&cli(dir.path(), &["logs"], &[]).stdout);
+    let lines: Vec<&str> = out.trim_end().lines().collect();
+    assert_eq!(lines.len(), 2, "{out}");
+    let waited = lines[0].split("  waited ").nth(1).and_then(|rest| rest.split('s').next()).and_then(|s| s.parse::<u32>().ok());
+    assert!(lines[0].contains("  echo second  exit 0  waited ") && lines[0].ends_with("  ran 0s"), "{}", lines[0]);
+    assert!(waited.is_some_and(|s| (8..20).contains(&s)), "{}", lines[0]);
+    assert!(lines[1].ends_with("  echo first  exit 0  waited 0s  ran 0s"), "{}", lines[1]);
 }

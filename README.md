@@ -26,9 +26,12 @@ irm https://raw.githubusercontent.com/Ploppy3/heavy-cmd/main/install.ps1 | iex
 
 ```
 heavy-cmd -- <command>...
+heavy-cmd logs
 ```
 
-That is the only command line it takes: anything else prints the usage, whose first line names the version, and exits `64`.
+Those are the only command lines it takes: anything else prints the usage, whose first line names the version, and exits `64`.
+
+### Running a command
 
 It waits for its turn, then runs the command in the foreground: stdin, stdout and stderr are the command's, and heavy-cmd exits with the command's exit code. One argument is a shell line, run through `sh -c` (`heavy-cmd -- 'npm ci && npm test'`), or `cmd.exe /d /s /c` on Windows; several are the program and its arguments. On Windows a bare program name is looked up with `PATHEXT`, so `heavy-cmd -- npm ci` finds `npm.cmd`.
 
@@ -42,7 +45,18 @@ It checks every 2 seconds, and gives up with exit `75` when it could not start w
 
 A signal (`SIGINT`, `SIGTERM`, `SIGHUP`) while it waits stops the wait and ends heavy-cmd as that signal would end the command. Once the command runs, `SIGTERM` and `SIGHUP` are passed on to it, and a terminal's `SIGINT` reaches it through its process group. On Windows, Ctrl+C, Ctrl+Break or the console closing while it waits exit `130`, `149` or `129`; once the command runs, the console's events reach it directly, and it runs in a job object, so whatever ends heavy-cmd ends it too.
 
-The queue lives in `heavy.db` (SQLite) in `${XDG_STATE_HOME:-~/.local/state}/heavy-cmd`, `%LOCALAPPDATA%\heavy-cmd` on Windows.
+The queue and the record live in `heavy.db` (SQLite) in `${XDG_STATE_HOME:-~/.local/state}/heavy-cmd`, `%LOCALAPPDATA%\heavy-cmd` on Windows.
+
+### `heavy-cmd logs`
+
+Every run is recorded once it is over, and kept 30 days. `logs` lists the last 50, the last ended first: when it ended, where it ran, the command, and how it went.
+
+```
+14:02:11  ~/workspace/api  npm run check  exit 0  waited 12s  ran 3m 4s
+13:58:40  ~/workspace/web  npm ci  gave up after 15m (75)
+```
+
+A command that never started is `gave up` (exit `75`) or `stopped while waiting` (`128 +` the signal). A run that cannot be recorded says so in one stderr line, and its exit stays the command's.
 
 ## Exit codes
 
