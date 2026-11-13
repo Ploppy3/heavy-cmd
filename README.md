@@ -8,15 +8,25 @@ heavy-cmd -- npm run check
 
 ## Install
 
-Needs Node 26 or later (for its built-in `node:sqlite`), `curl` and `tar`. Nothing else: no npm package, no dependency.
+One binary, nothing to install beside it: Linux and Windows, on x86_64.
+
+**Linux** (needs `curl` and `tar`):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Ploppy3/heavy-cmd/main/install.sh | sh
 ```
 
-It installs the newest [release](https://github.com/Ploppy3/heavy-cmd/releases) into `~/.local/share/heavy-cmd` and links `~/.local/bin/heavy-cmd`. Run it again at will: it changes nothing when the newest release is already there. `HEAVY_CMD_INSTALL_DIR` and `HEAVY_CMD_BIN_DIR` override the two folders.
+It puts the newest [release](https://github.com/Ploppy3/heavy-cmd/releases) in `~/.local/share/heavy-cmd/bin/heavy-cmd` and links `~/.local/bin/heavy-cmd` to it. `HEAVY_CMD_INSTALL_DIR` and `HEAVY_CMD_BIN_DIR` override the two folders. To remove it: `rm -rf ~/.local/share/heavy-cmd ~/.local/bin/heavy-cmd`, and `~/.local/state/heavy-cmd` for its record.
 
-To remove it: `rm -rf ~/.local/share/heavy-cmd ~/.local/bin/heavy-cmd`, and `~/.local/state/heavy-cmd` for its record.
+**Windows** (PowerShell; Windows 10 1803 or later, for its `curl.exe` and `tar.exe`):
+
+```powershell
+irm https://raw.githubusercontent.com/Ploppy3/heavy-cmd/main/install.ps1 | iex
+```
+
+It puts the newest release in `%LOCALAPPDATA%\Programs\heavy-cmd\bin\heavy-cmd.exe` and that `bin` folder on your PATH; `HEAVY_CMD_INSTALL_DIR` overrides the folder. To remove it: delete that folder, its PATH entry, and `%LOCALAPPDATA%\heavy-cmd` for its record.
+
+Run either again at will: it changes nothing when the newest release is already there. An install from the Node releases (v0.1) is replaced in place by `install.sh`.
 
 ## Usage
 
@@ -30,7 +40,7 @@ heavy-cmd --version | --help
 
 ### Running a command
 
-`heavy-cmd -- <command>` waits for its turn, then runs the command in the foreground: stdin, stdout and stderr are the command's, and heavy-cmd exits with the command's exit code. One argument is a shell line, run through `sh -c` (`heavy-cmd -- 'npm ci && npm test'`); several are the program and its arguments.
+`heavy-cmd -- <command>` waits for its turn, then runs the command in the foreground: stdin, stdout and stderr are the command's, and heavy-cmd exits with the command's exit code. One argument is a shell line, run through `sh -c` (`heavy-cmd -- 'npm ci && npm test'`), or `cmd.exe /d /s /c` on Windows; several are the program and its arguments. On Windows a bare program name is looked up with `PATHEXT`, so `heavy-cmd -- npm ci` finds `npm.cmd`.
 
 A command starts when:
 
@@ -44,7 +54,9 @@ It checks every 2 seconds, and gives up with exit `75` when it could not start w
 - `--project` is the project it is recorded under. Unless given: the repository name of the git `origin` remote of the working directory, else the git top-level folder's name, else the working directory's name. Origin comes first because a worktree's folder name is not its project's.
 - `--agent` is who ran it, else `HEAVY_CMD_AGENT`; none when neither is set.
 
-A signal (`SIGINT`, `SIGTERM`, `SIGHUP`) while it waits stops the wait — recorded as stopped — and ends heavy-cmd as that signal would end the command. Once the command runs, `SIGTERM` and `SIGHUP` are passed on to it, and a terminal's `SIGINT` reaches it through its process group.
+A signal (`SIGINT`, `SIGTERM`, `SIGHUP`) while it waits stops the wait — recorded as stopped — and ends heavy-cmd as that signal would end the command. Once the command runs, `SIGTERM` and `SIGHUP` are passed on to it, and a terminal's `SIGINT` reaches it through its process group. A signal heavy-cmd was started ignoring, as under `nohup`, stays ignored.
+
+On Windows the console's events stand for the signals: Ctrl+C, Ctrl+Break or the console closing while it waits stop the wait, recorded as stopped, and heavy-cmd exits `130`, `149` or `129` (`128 +` the C runtime's `SIGINT`, `SIGBREAK`, and `SIGHUP` for a closing). Once the command runs, the console's events reach it directly, and heavy-cmd exits as it does. The command runs in a job object, so whatever ends heavy-cmd ends the command too; once the command is over, what it left running lives on.
 
 ### `heavy-cmd status`
 
@@ -71,7 +83,7 @@ Every run is recorded once it is over, and kept 30 days. `logs` lists them, the 
 
 ## Configuration
 
-`${XDG_CONFIG_HOME:-~/.config}/heavy-cmd/config`, one `key = value` per line, `#` starting a comment:
+`${XDG_CONFIG_HOME:-~/.config}/heavy-cmd/config` (`%APPDATA%\heavy-cmd\config` on Windows), one `key = value` per line, `#` starting a comment:
 
 ```
 cpu = 60          # the CPU target, in %: 10 to 100
@@ -81,20 +93,20 @@ auto_update = on  # on or off
 
 The env overrides the file — `HEAVY_CMD_CPU`, `HEAVY_CMD_WAIT`, `HEAVY_CMD_AUTO_UPDATE` (empty is unset) — and `--wait` overrides the env. A value out of its bounds, an unknown key or a line that is not `key = value` is refused, naming where it is and why, and nothing runs (exit `78`).
 
-The queue and its record, `heavy.db` (SQLite), live in `$HEAVY_CMD_HOME`, else `${XDG_STATE_HOME:-~/.local/state}/heavy-cmd`. Everyone who should share a queue must share this folder: by default, every heavy-cmd of one user.
+The queue and its record, `heavy.db` (SQLite), live in `$HEAVY_CMD_HOME`, else `${XDG_STATE_HOME:-~/.local/state}/heavy-cmd` (`%LOCALAPPDATA%\heavy-cmd` on Windows). Everyone who should share a queue must share this folder: by default, every heavy-cmd of one user. The Node releases (v0.1) kept the same file, the same way: both can share one queue.
 
 ## Exit codes
 
 | Exit | Meaning |
 |------|---------|
-| the command's | it ran: its own exit code, `128 + n` when signal `n` ended it |
+| the command's | it ran: its own exit code, `128 + n` when signal `n` ended it; a shell line's unknown program is the shell's to report (`127` from `sh`, `9009` from `cmd.exe`) |
 | `75` | it could not start within the wait (sysexits' `EX_TEMPFAIL`); the command never ran |
 | `127` | the program could not be started (not found, not executable) |
 | `64` | a command line heavy-cmd does not take (sysexits' `EX_USAGE`) |
 | `78` | a setting out of its bounds (sysexits' `EX_CONFIG`) |
 | `1` | another failure of heavy-cmd's own, such as an update that failed |
 
-A wait stopped by a signal ends heavy-cmd by that signal, as a shell reports it: `128 + n`.
+A wait stopped by a signal ends heavy-cmd by that signal, as a shell reports it: `128 + n`; on Windows it exits `128 + n` (`130` for Ctrl+C).
 
 ## Output contract
 
@@ -112,14 +124,14 @@ Callers — agents, scripts, the factory — may rely on these; they change only
 
 ## Updating
 
-- `heavy-cmd update` moves the install to the newest release, never back to an older one. It downloads and unpacks the release beside the one in use, switches to it with one atomic rename only once the new one runs (`--version`), and keeps the one before it; on any failure the install stays as it was. `heavy-cmd update --check` only says whether a newer release is out.
-- **Auto update:** after a command ends, at most once a day, heavy-cmd starts `heavy-cmd update` detached in the background, its output in `~/.local/share/heavy-cmd/update.log`. It never delays the command, nor changes its output or exit. `auto_update = off` (or `HEAVY_CMD_AUTO_UPDATE=off`) turns it off.
-- A dev checkout — `bin/heavy-cmd` in a git clone — is updated with git: `update` refuses there, and it never updates itself.
-- `HEAVY_CMD_RELEASES_API` points `update` and `install.sh` at another releases API than GitHub's (a mirror, or a test's server); it must answer as GitHub's `releases/latest`.
+- `heavy-cmd update` moves the install to the newest release, never back to an older one. It downloads this system's asset with `curl` and unpacks it with `tar` (Windows' own `curl.exe` and `tar.exe`) beside the binary in use, and only once the new one runs (`--version`) puts it in its place, keeping the one before as `bin/heavy-cmd.old` (`heavy-cmd.old.exe`). On Linux that is one atomic rename; on Windows, where a running program can be renamed but not replaced, the one in use is renamed away first. On any failure the install stays as it was. `heavy-cmd update --check` only says whether a newer release is out.
+- **Auto update:** after a command ends, at most once a day, heavy-cmd starts `heavy-cmd update` detached in the background, its output in `update.log` in the install folder. It never delays the command, nor changes its output or exit. `auto_update = off` (or `HEAVY_CMD_AUTO_UPDATE=off`) turns it off.
+- An install is a `bin/heavy-cmd` beside a `.heavy-cmd-install` file, as the installers leave it. A dev build — one under a git clone with its `Cargo.toml` — is updated with git: `update` refuses there, and it never updates itself; nor does a binary copied anywhere else.
+- `HEAVY_CMD_RELEASES_API` points `update` and the installers at another releases API than GitHub's (a mirror, or a test's server); it must answer as GitHub's `releases/latest`.
 
 ## Development
 
-See [AGENTS.md](AGENTS.md): `npm ci`, then `npm run check`.
+Rust, built and tested in a Docker toolchain so nothing but Docker is needed: `scripts/check` runs the format, clippy and every suite for Linux and for Windows (under Wine). See [AGENTS.md](AGENTS.md).
 
 ## License
 

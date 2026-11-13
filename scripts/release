@@ -1,0 +1,29 @@
+#!/bin/sh
+# Publishes release v<Cargo.toml's version> from this machine, with no CI: runs the checks, packs both
+# assets, pushes the tag and creates the GitHub release with them (gh). Run it on a clean main that is
+# pushed; install.sh, install.ps1 and `heavy-cmd update` then find it.
+#
+#   heavy-cmd -- scripts/release
+set -eu
+cd "$(dirname "$0")/.."
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+tag="v$version"
+die() {
+  printf 'release: %s\n' "$*" >&2
+  exit 1
+}
+
+[ "$(git branch --show-current)" = main ] || die "not on main"
+[ -z "$(git status --porcelain)" ] || die "the tree is not clean"
+git fetch -q origin main
+[ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || die "main is not origin/main: push it first"
+if git rev-parse -q --verify "refs/tags/$tag" >/dev/null || git ls-remote --exit-code --tags origin "$tag" >/dev/null; then
+  die "$tag exists: bump the version in Cargo.toml (a published tag never moves)"
+fi
+
+scripts/check
+scripts/pack
+git tag "$tag"
+git push origin "$tag"
+gh release create "$tag" dist/heavy-cmd-linux-x86_64.tar.gz dist/heavy-cmd-windows-x86_64.zip --verify-tag --title "$tag" --generate-notes
+gh release view "$tag" --json assets --jq '.assets[].name'

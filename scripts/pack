@@ -1,0 +1,37 @@
+#!/bin/sh
+# Builds the release assets into dist/, in the toolchain (scripts/dev): heavy-cmd-linux-x86_64.tar.gz,
+# a static (musl) binary, and heavy-cmd-windows-x86_64.zip; each holds heavy-cmd/bin/, README.md and
+# LICENSE. Then checks each, unpacked as an install would, runs and names Cargo.toml's version (the
+# Windows one under Wine).
+#
+#   heavy-cmd -- scripts/pack
+set -eu
+exec "$(dirname "$0")/dev" sh -euc '
+version=$(sed -n "s/^version = \"\(.*\)\"$/\1/p" Cargo.toml | head -n 1)
+linux=x86_64-unknown-linux-musl
+windows=x86_64-pc-windows-gnu
+cargo build --locked --release --target $linux
+cargo build --locked --release --target $windows
+rm -rf dist
+stage() {
+  rm -rf dist/stage
+  mkdir -p dist/stage/heavy-cmd/bin
+  cp README.md LICENSE dist/stage/heavy-cmd/
+  cp "$1" dist/stage/heavy-cmd/bin/
+}
+stage target/$linux/release/heavy-cmd
+tar -czf dist/heavy-cmd-linux-x86_64.tar.gz -C dist/stage heavy-cmd
+stage target/$windows/release/heavy-cmd.exe
+(cd dist/stage && zip -qr ../heavy-cmd-windows-x86_64.zip heavy-cmd)
+rm -rf dist/stage
+
+check=$(mktemp -d)
+tar -xzf dist/heavy-cmd-linux-x86_64.tar.gz -C "$check"
+said=$("$check/heavy-cmd/bin/heavy-cmd" --version)
+[ "$said" = "heavy-cmd v$version" ] || { echo "pack: the Linux binary says \"$said\"" >&2; exit 1; }
+unzip -q dist/heavy-cmd-windows-x86_64.zip -d "$check/windows"
+said=$(wine "$check/windows/heavy-cmd/bin/heavy-cmd.exe" --version 2>/dev/null | tr -d "\r")
+[ "$said" = "heavy-cmd v$version" ] || { echo "pack: the Windows binary says \"$said\"" >&2; exit 1; }
+rm -rf "$check"
+ls -l dist
+'

@@ -1,0 +1,20 @@
+#!/bin/sh
+# Runs a command in the toolchain (scripts/Dockerfile), built first when it changed: the repo is /work,
+# the caches .cache/, and files come out owned by you. Nothing is installed on the machine but the image.
+#
+#   scripts/dev cargo test
+set -eu
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+image=heavy-cmd-dev
+docker build -q -t "$image" -f "$root/scripts/Dockerfile" "$root/scripts" >/dev/null
+mkdir -p "$root/.cache/cargo" "$root/.cache/home"
+
+tty=""
+[ -t 0 ] && [ -t 1 ] && tty="-t"
+exec docker run --rm -i $tty --init \
+  --user "$(id -u):$(id -g)" \
+  --volume "$root:/work" --workdir /work \
+  --env HOME=/work/.cache/home --env CARGO_HOME=/work/.cache/cargo --env WINEPREFIX=/work/.cache/wine \
+  --env CARGO_TERM_COLOR="${CARGO_TERM_COLOR:-auto}" \
+  "$image" "$@"
