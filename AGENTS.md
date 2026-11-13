@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repo is `heavy-cmd`: a standalone CLI in Rust, one static binary for Linux and Windows (x86_64), that runs a heavy command — an install, a build, a test suite — once the machine has room, so the heavy commands of every agent and project on the machine share one queue. It was extracted from the factory's `factory heavy` (Ploppy3/factory, v0.70.0, `7e77c16`) and first released in TypeScript on Node (v0.1); the Rust port (v0.2) keeps its behaviour, its output contract and its `heavy.db`, so both share one queue. [README.md](README.md) is the user's contract: usage, config, exit codes and the output callers match.
+This repo is `heavy-cmd`: a standalone CLI in Rust, one static binary for Linux and Windows (x86_64), that runs a heavy command — an install, a build, a test suite — once the machine has room, so the heavy commands of every agent and project on the machine share one queue. It was extracted from the factory's `factory heavy` (Ploppy3/factory, v0.70.0, `7e77c16`), whose behaviour it keeps; nothing of it depends on the factory. [README.md](README.md) is the user's contract: usage, config, exit codes and the output callers match.
 
 Everything is built and tested on the developer's machine, in a Docker toolchain (`scripts/dev`): there is no CI, and a release is published from the machine (`scripts/release`). Run heavy commands — the checks, builds — through `heavy-cmd -- <command>`.
 
@@ -31,7 +31,7 @@ What the brief left open, and what was chosen:
 - **`wait` is 0–86400:** 0 (try once, give up at once) is valid everywhere.
 - **`--agent` is handed on** to the command as `HEAVY_CMD_AGENT`, so nested heavy-cmds record the same agent.
 - **`status` keeps a CPU sample** as it reads, as `factory heavy status` did, so a status read alone measures the CPU after 10 s; `logs` opens the record read-only.
-- **CPU counters are in ms**, Linux's from `/proc/stat` as Node's `os.cpus()` counts them, so a v0.1 and a v0.2 heavy-cmd read the same samples alike.
+- **CPU counters are in ms**: Linux's from `/proc/stat` (user, nice, system and irq busy; idle), Windows' from `GetSystemTimes`.
 - **The auto-update stamp and log live in the install** (`update-check`, `update.log`), not the state folder: the install is what updates, whatever `HEAVY_CMD_HOME` a command uses.
 - **`--check` exits 0** either way and says which in one line.
 - **The project label** asks git (`remote get-url origin`, `rev-parse --show-toplevel`); without git it is the cwd's name.
@@ -69,7 +69,7 @@ What the brief left open, and what was chosen:
 - `queue.rs`, `record.rs`, `cpu.rs`: the factory's heavy suites, ported case by case — admission, the gap, the CPU target, liveness, the record, `logs` — on a fake clock, fake CPU counters and fake pids (`common::World`), each waiter a thread with its own connection. The factory's "own work" case became "work that is not a command".
 - `config.rs`, `project.rs`, `commands.rs`: settings and their bounds (and Windows' folders), the project label from git, the run's options and `status --json`'s fields.
 - `update.rs`: the binary's switch, the auto update, what counts as an install; `update/releases.rs` (Linux) runs `update` on a fake install against tarballs and a local release server, and the detached start.
-- `install.rs` (Linux): `install.sh` end to end against a local release server, the replacement of a Node install among them.
+- `install.rs` (Linux): `install.sh` end to end against a local release server.
 - `cli.rs`: `heavy-cmd` as a process — exits, the waiting line and 75, nesting, a signal while waiting (Linux), `PATHEXT` (Windows), and the smoke test: two commands in a temp home, the second waiting out the 10 s gap, and `logs` showing both.
 
 Tests never touch the real queue, config or install: each runs on a temp state and config folder (`common::heavy_cmd`, explicit `Env`s), with `HEAVY_CMD_ID` and `HEAVY_CMD_AGENT` cleared.

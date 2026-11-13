@@ -111,18 +111,3 @@ fn a_release_that_does_not_run_is_not_installed_and_a_file_in_the_links_place_is
     assert!(text(&out.stderr).contains("exists and is not a link"), "{}", text(&out.stderr));
     assert_eq!(std::fs::read_to_string(setup.dir.join("bin").join("heavy-cmd")).unwrap(), "mine");
 }
-
-#[test]
-fn what_the_node_releases_installed_is_replaced() {
-    let setup = Setup::new();
-    let tag = format!("v{VERSION}");
-    setup.releases.set(&tag, release(setup.dir.path(), None));
-    let share = setup.dir.join("share");
-    std::fs::create_dir_all(share.join("versions").join("v0.1.0").join("bin")).unwrap();
-    std::os::unix::fs::symlink("versions/v0.1.0", share.join("current")).unwrap();
-    std::fs::create_dir_all(setup.dir.join("bin")).unwrap();
-    std::os::unix::fs::symlink(share.join("current").join("bin").join("heavy-cmd"), setup.dir.join("bin").join("heavy-cmd")).unwrap();
-    assert_eq!(setup.install_sh().status.code(), Some(0));
-    assert!(!share.join("versions").exists() && std::fs::symlink_metadata(share.join("current")).is_err());
-    assert_eq!(text(&setup.heavy_cmd(&["--version"]).stdout), format!("heavy-cmd {tag}\n"));
-}
