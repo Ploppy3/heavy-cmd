@@ -14,6 +14,7 @@ pub mod run;
 pub mod sha256;
 pub mod sys;
 pub mod update;
+pub mod watch;
 
 /// The crates the tests reach heavy.db and the clock through.
 pub use chrono;

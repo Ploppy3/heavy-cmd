@@ -1,6 +1,6 @@
-//! `heavy-cmd` as a process: its command lines, exits, nesting, a signal while waiting, a test build's
-//! refused update, and the smoke test: two commands in a temp home, the second waiting out the 10 s gap,
-//! and `logs` showing both.
+//! `heavy-cmd` as a process: its command lines, the view on a terminal (Linux), exits, nesting, a signal
+//! while waiting, a test build's refused update, and the smoke test: two commands in a temp home, the
+//! second waiting out the 10 s gap, and `logs` showing both.
 
 mod common;
 
@@ -21,25 +21,71 @@ fn text(bytes: &[u8]) -> String {
 /// This process holds a start in `dir`'s queue until the Heavy drops.
 fn hold(dir: &Path) -> Heavy {
     let heavy = Heavy::open(&state(dir), HeavyPorts::machine()).unwrap();
-    heavy.claim(&mut ClaimOptions { wait_sec: 0, ..ClaimOptions::default() }, std::process::id()).unwrap();
+    let mut options = ClaimOptions { wait_sec: 0, ..ClaimOptions::default() };
+    heavy.claim(&mut options, std::process::id(), "held by the suite", &dir.display().to_string()).unwrap();
     heavy
 }
 
 #[test]
-fn anything_but_a_command_logs_or_update_prints_the_usage_and_exits_64() {
+fn off_a_terminal_anything_but_a_command_logs_or_update_prints_the_usage_and_exits_64() {
     let dir = TempDir::new("heavy-cmd-cli");
+    // Bare off a terminal too: a heavy-cmd checks the release it updates to by its usage's first line.
     for args in [&[][..], &["--"], &["npm", "test"], &["--version"], &["logs", "--json"], &["update", "--check"]] {
         let out = cli(dir.path(), args, &[]);
         assert_eq!(out.status.code(), Some(64), "{args:?}");
         let usage = text(&out.stderr);
         assert!(usage.starts_with(&format!("heavy-cmd v{}: ", env!("CARGO_PKG_VERSION"))), "{usage}");
-        for line in ["\n  heavy-cmd -- <command>...\n", "\n  heavy-cmd logs\n", "\n  heavy-cmd update\n"] {
+        for line in ["\n  heavy-cmd\n", "\n  heavy-cmd -- <command>...\n", "\n  heavy-cmd logs\n", "\n  heavy-cmd update\n"] {
             assert!(usage.contains(line), "{usage}");
         }
     }
     let out = cli(dir.path(), &["logs"], &[]);
     assert_eq!((out.status.code(), text(&out.stdout)), (Some(0), "no heavy command recorded\n".into()));
     assert!(!state(dir.path()).exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn bare_on_a_terminal_it_draws_the_view_until_a_signal_then_gives_the_screen_back() {
+    use heavy_cmd::logs::place;
+    use std::io::Read;
+    use std::os::fd::{FromRawFd, OwnedFd};
+    use std::os::unix::process::ExitStatusExt;
+    let dir = TempDir::new("heavy-cmd-cli");
+    let _holder = hold(dir.path());
+    let (mut master, mut slave) = (0, 0);
+    let size = libc::winsize { ws_row: 24, ws_col: 200, ws_xpixel: 0, ws_ypixel: 0 };
+    // SAFETY: two fds to write into, and the terminal's size; each fd is owned once opened.
+    let (master, slave) = unsafe {
+        assert_eq!(libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null(), &size), 0);
+        (OwnedFd::from_raw_fd(master), OwnedFd::from_raw_fd(slave))
+    };
+    let mut view = heavy_cmd(dir.path()).stdout(slave).spawn().unwrap();
+    let (send, drawn) = std::sync::mpsc::channel();
+    let mut master = std::fs::File::from(master);
+    std::thread::spawn(move || {
+        let mut chunk = [0; 4096];
+        // The terminal reads EIO once the view ends.
+        while let Ok(n @ 1..) = master.read(&mut chunk) {
+            let _ = send.send(chunk[..n].to_vec());
+        }
+    });
+    let mut screen = Vec::new();
+    while !text(&screen).contains("\x1b[J") {
+        screen.extend(drawn.recv_timeout(Duration::from_secs(10)).expect("no view drawn"));
+    }
+    let first = text(&screen);
+    assert!(first.starts_with("\x1b[?1049h\x1b[?25l\x1b[H\x1b[2Kheavy-cmd v"), "{first:?}");
+    let place = place(&dir.path().display().to_string(), std::env::home_dir().as_deref());
+    assert!(
+        first.contains("running\r\n\x1b[2K  ") && first.contains(&format!("  {place}  held by the suite  waited 0s  running ")),
+        "{first:?}"
+    );
+    assert!(first.contains("next\r\n\x1b[2K  none\r\n"), "{first:?}");
+    std::process::Command::new("sh").args(["-c", &format!("kill -INT {}", view.id())]).status().unwrap();
+    assert_eq!(view.wait().unwrap().signal(), Some(2));
+    screen.extend(drawn.iter().flatten());
+    assert!(text(&screen).ends_with("\x1b[?25h\x1b[?1049l"), "{:?}", text(&screen));
 }
 
 #[test]

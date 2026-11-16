@@ -3,7 +3,7 @@
 
 use heavy_cmd::cpu::CpuTimes;
 use heavy_cmd::fail::Result;
-use heavy_cmd::queue::{ClaimOptions, Heavy, HeavyPorts, HeavyStatus};
+use heavy_cmd::queue::{ClaimOptions, Heavy, HeavyPorts, HeavyStatus, Queued};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -141,16 +141,18 @@ impl World {
         self.alive.lock().unwrap().remove(&pid);
     }
 
-    /// `pid` queues a command on `heavy`, waiting as `edit` changes `options()`, and returns its id once it starts.
+    /// `pid` queues `command <pid>`, run in `/work`, on `heavy`, waiting as `edit` changes `options()`, and
+    /// returns its id once it starts.
     pub fn claim(&self, heavy: &Heavy, pid: u32, edit: impl FnOnce(&mut ClaimOptions)) -> Result<i64> {
         self.alive.lock().unwrap().insert(pid);
         let mut options = options();
         edit(&mut options);
-        heavy.claim(&mut options, pid)
+        heavy.claim(&mut options, pid, &format!("command {pid}"), "/work")
     }
 }
 
 /// The pids running, and those waiting, in order.
 pub fn pids(status: &HeavyStatus) -> (Vec<u32>, Vec<u32>) {
-    (status.running.clone(), status.waiting.clone())
+    let pids = |queued: &[Queued]| queued.iter().map(|it| it.pid).collect();
+    (pids(&status.running), pids(&status.waiting))
 }

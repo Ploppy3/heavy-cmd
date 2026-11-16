@@ -23,12 +23,25 @@ pub fn state_dir() -> PathBuf {
     base.unwrap_or_else(|| std::env::home_dir().unwrap_or_default().join(fallback)).join("heavy-cmd")
 }
 
+/// A command in the queue: the heavy-cmd process it belongs to, what it runs and where, its times in ms.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Queued {
+    pub id: i64,
+    pub pid: u32,
+    /// As it was given: a shell line, or the argv joined by spaces.
+    pub command: String,
+    pub cwd: String,
+    pub queued_at: i64,
+    /// None while it waits.
+    pub started_at: Option<i64>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct HeavyStatus {
-    /// The running commands' pids, oldest start first.
-    pub running: Vec<u32>,
-    /// The waiters' pids, in the order they start.
-    pub waiting: Vec<u32>,
+    /// The running commands, oldest start first.
+    pub running: Vec<Queued>,
+    /// The waiters, in the order they start.
+    pub waiting: Vec<Queued>,
     /// The machine's CPU usage over the last 10 seconds, in %; None until it is measured.
     pub cpu: Option<f64>,
     /// When the last command started, in ms.
@@ -76,17 +89,14 @@ impl HeavyPorts {
     }
 }
 
+// The queue is `heavy`: a table whose columns change takes a new name, and a heavy-cmd of a release before keeps its own.
 const SCHEMA: &str = "
-CREATE TABLE IF NOT EXISTS queue (id INTEGER PRIMARY KEY AUTOINCREMENT, pid INTEGER NOT NULL, since INTEGER NOT NULL, started_at INTEGER);
+CREATE TABLE IF NOT EXISTS heavy (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, pid INTEGER NOT NULL, command TEXT NOT NULL, cwd TEXT NOT NULL,
+  queued_at INTEGER NOT NULL, started_at INTEGER
+);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
 ";
-
-struct Row {
-    id: i64,
-    pid: u32,
-    since: i64,
-    started_at: Option<i64>,
-}
 
 /// The machine's heavy commands, in one SQLite file, heavy.db: each joins as a waiter and starts, oldest
 /// first, once the last start was 10 seconds ago and, while others run, the CPU usage over the last 10
@@ -114,18 +124,26 @@ impl Heavy {
 
     /// The rows whose process lives, oldest first; `prune` deletes the others. One from before the last
     /// boot names a pid the system may have reused.
-    fn live(&self, prune: bool) -> Result<Vec<Row>> {
+    fn live(&self, prune: bool) -> Result<Vec<Queued>> {
         let booted = (self.ports.booted_at)();
-        let mut statement = self.db.prepare("SELECT id, pid, since, started_at FROM queue ORDER BY id")?;
-        let rows =
-            statement.query_map([], |row| Ok(Row { id: row.get(0)?, pid: row.get(1)?, since: row.get(2)?, started_at: row.get(3)? }))?;
+        let mut statement = self.db.prepare("SELECT id, pid, command, cwd, queued_at, started_at FROM heavy ORDER BY id")?;
+        let rows = statement.query_map([], |row| {
+            Ok(Queued {
+                id: row.get(0)?,
+                pid: row.get(1)?,
+                command: row.get(2)?,
+                cwd: row.get(3)?,
+                queued_at: row.get(4)?,
+                started_at: row.get(5)?,
+            })
+        })?;
         let mut live = Vec::new();
         for row in rows {
             let row = row?;
-            if row.since >= booted && (self.ports.pid_alive)(row.pid) {
+            if row.queued_at >= booted && (self.ports.pid_alive)(row.pid) {
                 live.push(row);
             } else if prune {
-                self.db.execute("DELETE FROM queue WHERE id = ?1", [row.id])?;
+                self.db.execute("DELETE FROM heavy WHERE id = ?1", [row.id])?;
             }
         }
         Ok(live)
@@ -160,7 +178,7 @@ impl Heavy {
         if rows.iter().any(|row| row.started_at.is_some()) && cpu.is_none_or(|cpu| cpu >= f64::from(target)) {
             return Ok(false);
         }
-        self.db.execute("UPDATE queue SET started_at = ?1 WHERE id = ?2", params![now, id])?;
+        self.db.execute("UPDATE heavy SET started_at = ?1 WHERE id = ?2", params![now, id])?;
         self.set_last_start(now)?;
         Ok(true)
     }
@@ -176,11 +194,12 @@ impl Heavy {
         Ok(started)
     }
 
-    /// Queues a command as `pid`'s, and returns its id once it starts: a Busy failure when it could not
-    /// within `wait_sec`, a Stopped one when its stop came first. Either way it no longer counts.
-    pub fn claim(&self, options: &mut ClaimOptions, pid: u32) -> Result<i64> {
+    /// Queues `command`, run in `cwd`, as `pid`'s, and returns its id once it starts: a Busy failure when
+    /// it could not within `wait_sec`, a Stopped one when its stop came first. Either way it no longer counts.
+    pub fn claim(&self, options: &mut ClaimOptions, pid: u32, command: &str, cwd: &str) -> Result<i64> {
         let deadline = self.now() + options.wait_sec as i64 * 1000;
-        self.db.execute("INSERT INTO queue (pid, since) VALUES (?1, ?2)", params![pid, self.now()])?;
+        self.db
+            .execute("INSERT INTO heavy (pid, command, cwd, queued_at) VALUES (?1, ?2, ?3, ?4)", params![pid, command, cwd, self.now()])?;
         let id = self.db.last_insert_rowid();
         let claimed = self.wait_turn(id, options, deadline);
         if claimed.is_err() {
@@ -216,8 +235,13 @@ impl Heavy {
 
     /// Its command ended, or its wait did: it no longer counts.
     pub fn release(&self, id: i64) -> Result<()> {
-        self.db.execute("DELETE FROM queue WHERE id = ?1", [id])?;
+        self.db.execute("DELETE FROM heavy WHERE id = ?1", [id])?;
         Ok(())
+    }
+
+    /// The last `limit` runs of the record, the last ended first.
+    pub fn recent(&self, limit: u32) -> Result<Vec<Run>> {
+        Ok(logs::runs(&self.db, limit)?)
     }
 
     /// Keeps a CPU sample: a running command's keep the reading fresh for those waiting.
@@ -250,9 +274,8 @@ impl Heavy {
     pub fn status(&self) -> Result<HeavyStatus> {
         let cpu = cpu::measure(&self.db, self.now(), (self.ports.sample)())?;
         // Ids are the order of arrival, which is the order of starts.
-        let (running, waiting): (Vec<Row>, Vec<Row>) = self.live(false)?.into_iter().partition(|row| row.started_at.is_some());
-        let pids = |rows: Vec<Row>| rows.into_iter().map(|row| row.pid).collect();
-        Ok(HeavyStatus { running: pids(running), waiting: pids(waiting), cpu, last_start: self.last_start()? })
+        let (running, waiting) = self.live(false)?.into_iter().partition(|row| row.started_at.is_some());
+        Ok(HeavyStatus { running, waiting, cpu, last_start: self.last_start()? })
     }
 }
 
@@ -265,7 +288,7 @@ fn stopped(stop: Option<&Stop>) -> Result<()> {
 }
 
 /// Sleeps `ms`, waking at once when `stop` is.
-fn pause(ms: u64, stop: Option<&Stop>) -> Result<()> {
+pub fn pause(ms: u64, stop: Option<&Stop>) -> Result<()> {
     let mut left = ms;
     while left > 0 {
         let step = left.min(50);

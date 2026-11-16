@@ -1,6 +1,6 @@
 //! What differs between Linux and Windows: CPU counters, boot time, process liveness, the shell, signals
-//! (console events on Windows), keeping a command to its heavy-cmd, and the update's background start and
-//! binary switch.
+//! (console events on Windows), keeping a command to its heavy-cmd, the terminal's size, and the update's
+//! background start and binary switch.
 
 use std::sync::atomic::{AtomicI32, Ordering};
 

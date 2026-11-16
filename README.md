@@ -25,12 +25,32 @@ irm https://raw.githubusercontent.com/Ploppy3/heavy-cmd/main/install.ps1 | iex
 ## Usage
 
 ```
+heavy-cmd
 heavy-cmd -- <command>...
 heavy-cmd logs
 heavy-cmd update
 ```
 
-Those are the only command lines it takes: anything else prints the usage, whose first line names the version, and exits `64`.
+Those are the only command lines it takes: anything else, and a bare `heavy-cmd` off a terminal, prints the usage, whose first line names the version, and exits `64`.
+
+### `heavy-cmd`
+
+On a terminal, the queue live: the commands running, the next ones in the order they start, and the last 10 runs, redrawn every second until Ctrl+C. A running command shows when it started, a next one when it was queued, a run when it ended.
+
+```
+heavy-cmd v0.5.0 · 1 running · cpu 72%/60%, last start 12s ago
+
+running
+  14:02:11  ~/workspace/api  npm run check  waited 12s  running 3m 4s
+
+next
+  14:04:03  ~/workspace/web  npm ci  waiting 1m 12s
+
+history
+  14:01:59  ~/workspace/api  cargo build  exit 0  waited 0s  ran 2m 40s
+```
+
+It uses the terminal's alternate screen, so the screen before comes back once it ends; a line too wide is cut, and what does not fit the terminal's height is left out.
 
 ### Running a command
 
@@ -72,7 +92,7 @@ A release's heavy-cmd updates itself. After a command ends, at most once an hour
 | the command's | it ran: its own exit code, `128 + n` when signal `n` ended it; a shell line's unknown program is the shell's to report (`127` from `sh`, `9009` from `cmd.exe`) |
 | `75` | it could not start within 900 s (sysexits' `EX_TEMPFAIL`); the command never ran |
 | `127` | the program could not be started (not found, not executable) |
-| `64` | a command line other than `heavy-cmd -- <command>...`, `logs` or `update` (sysexits' `EX_USAGE`) |
+| `64` | a command line other than `heavy-cmd`, `heavy-cmd -- <command>...`, `logs` or `update`, or `heavy-cmd` off a terminal (sysexits' `EX_USAGE`) |
 | `1` | another failure of heavy-cmd's own, such as a `heavy.db` it cannot open or an update that failed |
 
 ## Output

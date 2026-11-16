@@ -15,23 +15,27 @@ pub const INSIDE: &str = "HEAVY_CMD_ID";
 /// How often a running command's heavy-cmd looks whether it ended.
 const POLL_CHILD: Duration = Duration::from_millis(50);
 
-/// `heavy-cmd: every heavy slot is busy: 1 running · cpu 63%/60%, last start 12s ago; waiting up to 900s`.
-pub fn waiting_line(status: &HeavyStatus, target: u32, wait_sec: u64, now: i64) -> String {
+/// `1 running · cpu 63%/60%, last start 12s ago`.
+pub fn summary(status: &HeavyStatus, target: u32, now: i64) -> String {
     let last = match status.last_start {
         Some(at) => format!("last start {} ago", duration(now - at)),
         None => "no start yet".to_string(),
     };
-    let usage = usage_line(status.running.len(), status.cpu, target);
-    format!("heavy-cmd: {WAITING}: {usage}, {last}; waiting up to {wait_sec}s")
+    format!("{}, {last}", usage_line(status.running.len(), status.cpu, target))
+}
+
+/// `heavy-cmd: every heavy slot is busy: 1 running · cpu 63%/60%, last start 12s ago; waiting up to 900s`.
+pub fn waiting_line(status: &HeavyStatus, target: u32, wait_sec: u64, now: i64) -> String {
+    format!("heavy-cmd: {WAITING}: {}; waiting up to {wait_sec}s", summary(status, target, now))
 }
 
 /// Runs `argv` once it may start, or at once `inside` another heavy command, holding its start until it
 /// ends; then records the run, and returns its exit code.
 pub fn run_heavy(heavy: &Heavy, argv: &[String], options: &mut ClaimOptions, inside: bool) -> Result<i32> {
-    let queued_at = heavy.now();
-    let claimed = if inside { Ok(None) } else { heavy.claim(options, std::process::id()).map(Some) };
+    let (command, queued_at) = (argv.join(" "), heavy.now());
     let cwd = std::env::current_dir().map(|dir| dir.display().to_string()).unwrap_or_default();
-    let mut run = Run { command: argv.join(" "), cwd, queued_at, started_at: None, ended_at: 0, exit: None, outcome: RAN };
+    let claimed = if inside { Ok(None) } else { heavy.claim(options, std::process::id(), &command, &cwd).map(Some) };
+    let mut run = Run { command, cwd, queued_at, started_at: None, ended_at: 0, exit: None, outcome: RAN };
     let ran = match claimed {
         Ok(id) => {
             run.started_at = Some(heavy.now());

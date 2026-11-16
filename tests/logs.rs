@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{World, options};
+use common::{World, options, pids};
 use heavy_cmd::fail::Fail;
 use heavy_cmd::logs::{GAVE_UP, RAN, Run, STOPPED, clock, line, recent, record};
 use heavy_cmd::queue::ClaimOptions;
@@ -59,7 +59,7 @@ fn inside_another_heavy_command_it_runs_at_once_and_is_recorded() {
     world.set_cpu(100.0);
     world.claim(&h, 101, |_| {}).unwrap();
     assert_eq!(run_heavy(&h, &argv(&["exit 0"]), &mut options(), true).unwrap(), 0);
-    assert_eq!(h.status().unwrap().running, [101]);
+    assert_eq!(pids(&h.status().unwrap()).0, [101]);
     let runs = recent(world.dir.path(), 50).unwrap();
     assert_eq!((runs[0].outcome, runs[0].exit, runs[0].started_at), (RAN, Some(0), Some(world.now())));
 }

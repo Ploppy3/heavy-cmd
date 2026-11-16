@@ -63,6 +63,11 @@ pub fn recent(dir: &Path, limit: u32) -> rusqlite::Result<Vec<Run>> {
     if !exists {
         return Ok(Vec::new());
     }
+    runs(&db, limit)
+}
+
+/// The last `limit` runs of the record in `db`, the last ended first.
+pub fn runs(db: &Connection, limit: u32) -> rusqlite::Result<Vec<Run>> {
     let mut statement = db.prepare(
         "SELECT command, cwd, queued_at, started_at, ended_at, exit, outcome FROM runs ORDER BY ended_at DESC, id DESC LIMIT ?1",
     )?;
@@ -89,13 +94,18 @@ pub fn clock(at: i64, now: i64) -> String {
     date.format(format).to_string()
 }
 
+/// Where a command ran, `home` shown as `~`: `~/workspace/api`.
+pub fn place(cwd: &str, home: Option<&Path>) -> String {
+    home.and_then(|home| Path::new(cwd).strip_prefix(home).ok()).map_or_else(
+        || cwd.to_string(),
+        |rest| if rest.as_os_str().is_empty() { "~".into() } else { format!("~{}{}", std::path::MAIN_SEPARATOR, rest.display()) },
+    )
+}
+
 /// `~/workspace/api  npm run check  exit 0  waited 12s  ran 3m 4s`, or `... gave up after 15m (75)`: a
 /// run without when it ended; `home` is shown as `~`.
 pub fn line(run: &Run, home: Option<&Path>) -> String {
-    let cwd = home.and_then(|home| Path::new(&run.cwd).strip_prefix(home).ok()).map_or_else(
-        || run.cwd.clone(),
-        |rest| if rest.as_os_str().is_empty() { "~".into() } else { format!("~{}{}", std::path::MAIN_SEPARATOR, rest.display()) },
-    );
+    let cwd = place(&run.cwd, home);
     let exit = run.exit.map_or_else(|| "?".to_string(), |exit| exit.to_string());
     let how = match run.started_at {
         Some(started) => format!("exit {exit}  waited {}  ran {}", duration(started - run.queued_at), duration(run.ended_at - started)),

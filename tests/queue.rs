@@ -2,7 +2,7 @@ mod common;
 
 use common::{World, line, options, pids, tick};
 use heavy_cmd::fail::Fail;
-use heavy_cmd::queue::HeavyStatus;
+use heavy_cmd::queue::{HeavyStatus, Queued};
 use heavy_cmd::run::{run_heavy, waiting_line};
 use std::sync::{Arc, Mutex};
 
@@ -16,6 +16,25 @@ fn with_none_running_and_no_start_yet_a_command_starts_at_once() {
     let h = world.heavy();
     world.claim(&h, 101, |_| {}).unwrap();
     assert_eq!(pids(&h.status().unwrap()), (vec![101], vec![]));
+}
+
+#[test]
+fn the_status_names_each_command_where_it_runs_when_it_was_queued_and_when_it_started() {
+    let world = World::new();
+    let h = world.heavy();
+    let id = world.claim(&h, 101, |_| {}).unwrap();
+    let start = world.now();
+    std::thread::scope(|s| {
+        let waiting = s.spawn(|| world.claim(&world.heavy(), 102, |o| o.wait_sec = 60));
+        tick();
+        world.advance(4_000);
+        let status = h.status().unwrap();
+        let queued =
+            |id, pid, started_at| Queued { id, pid, command: format!("command {pid}"), cwd: "/work".into(), queued_at: start, started_at };
+        assert_eq!((status.running, status.waiting), (vec![queued(id, 101, Some(start))], vec![queued(id + 1, 102, None)]));
+        world.advance(6_000);
+        waiting.join().unwrap().unwrap();
+    });
 }
 
 #[test]

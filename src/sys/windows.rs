@@ -8,7 +8,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus};
 use std::sync::atomic::{AtomicBool, Ordering};
 use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, FILETIME, GetLastError, HANDLE, STILL_ACTIVE};
-use windows_sys::Win32::System::Console::{CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT, SetConsoleCtrlHandler};
+use windows_sys::Win32::System::Console::{
+    CONSOLE_SCREEN_BUFFER_INFO, CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT, ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode,
+    GetConsoleScreenBufferInfo, GetStdHandle, STD_OUTPUT_HANDLE, SetConsoleCtrlHandler, SetConsoleMode,
+};
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation, SetInformationJobObject,
@@ -217,6 +220,29 @@ pub fn replace(bin: &Path, new: &Path) -> io::Result<()> {
     }
     let _ = std::fs::remove_file(&old);
     Ok(())
+}
+
+/// The size of the console stdout writes to, as columns and rows, its escape sequences turned on; None
+/// when it is not one, or takes none.
+pub fn term_size() -> Option<(usize, usize)> {
+    // SAFETY: the handle is the process's own; the mode and the info are written into.
+    unsafe {
+        let out = GetStdHandle(STD_OUTPUT_HANDLE);
+        let mut mode = 0;
+        if GetConsoleMode(out, &mut mode) == 0 {
+            return None;
+        }
+        if mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING == 0 && SetConsoleMode(out, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING) == 0 {
+            return None;
+        }
+        let mut info: CONSOLE_SCREEN_BUFFER_INFO = std::mem::zeroed();
+        if GetConsoleScreenBufferInfo(out, &mut info) == 0 {
+            return None;
+        }
+        let window = info.srWindow;
+        let (cols, rows) = (window.Right - window.Left + 1, window.Bottom - window.Top + 1);
+        (cols > 0 && rows > 0).then_some((cols as usize, rows as usize))
+    }
 }
 
 /// Ends this process as a console event ended the wait: `128 + n`, as on Linux.

@@ -148,6 +148,14 @@ pub fn replace(bin: &Path, new: &Path) -> io::Result<()> {
     std::fs::rename(new, bin)
 }
 
+/// The size of the terminal stdout writes to, as columns and rows; None when it is not one.
+pub fn term_size() -> Option<(usize, usize)> {
+    // SAFETY: the ioctl writes into a zeroed winsize.
+    let mut size: libc::winsize = unsafe { std::mem::zeroed() };
+    let read = unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut size) } == 0;
+    (read && size.ws_col > 0 && size.ws_row > 0).then(|| (usize::from(size.ws_col), usize::from(size.ws_row)))
+}
+
 /// Ends this process by `signal`, as it would have ended the command: a shell sees `128 + n`.
 pub fn die_by(signal: i32) -> ! {
     // SAFETY: the default action of these signals ends the process.

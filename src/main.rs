@@ -5,12 +5,15 @@ use heavy_cmd::queue::{CPU_TARGET, ClaimOptions, Heavy, HeavyPorts, WAIT_SEC, st
 use heavy_cmd::run::{INSIDE, run_heavy, waiting_line};
 use heavy_cmd::sys;
 use heavy_cmd::update::{SELF_UPDATE, UpdatePorts, auto_update, update};
+use heavy_cmd::watch::watch;
 
 const USAGE: &str = concat!(
     "heavy-cmd v",
     env!("CARGO_PKG_VERSION"),
     ": run a heavy command (an install, a build, a test suite) once the machine has room
 
+  heavy-cmd
+      on a terminal, the queue live until Ctrl+C: the commands running, the next ones and the last 10 runs
   heavy-cmd -- <command>...
       run it once it is the machine's oldest waiter, 10s after the last start and, while others run,
       with the CPU over the last 10s under 60%; one argument runs through sh -c (cmd.exe /c on
@@ -59,9 +62,20 @@ fn logs() -> Result<i32> {
     Ok(0)
 }
 
+/// The usage, on stderr, and exit 64.
+fn usage() -> ! {
+    warn(USAGE);
+    std::process::exit(EX_USAGE)
+}
+
 fn main() {
     let argv: Vec<String> = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
     let ran = match argv.split_first() {
+        // Off a terminal it is the usage: a heavy-cmd checks the release it updates to by its usage's first line.
+        None => match sys::term_size() {
+            Some(size) => Heavy::open(&state_dir(), HeavyPorts::machine()).and_then(|heavy| watch(&heavy, size)).map(|()| 0),
+            None => usage(),
+        },
         Some((first, command)) if first == "--" && !command.is_empty() => {
             let signals = sys::catch_signals();
             let ran = run(command);
@@ -70,10 +84,7 @@ fn main() {
         }
         Some((first, [])) if first == "logs" => logs(),
         Some((first, [])) if first == "update" => self_update(),
-        _ => {
-            warn(USAGE);
-            std::process::exit(EX_USAGE);
-        }
+        _ => usage(),
     };
     let code = ran.unwrap_or_else(|fail| {
         if let Fail::Stopped(signal) = fail {
