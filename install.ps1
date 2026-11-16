@@ -1,25 +1,38 @@
 # Installs heavy-cmd's newest release on Windows as $env:HEAVY_CMD_INSTALL_DIR\heavy-cmd.exe
-# (%LOCALAPPDATA%\Programs\heavy-cmd) and puts that folder on your PATH; run it again to update. On Linux: install.sh.
+# (%LOCALAPPDATA%\Programs\heavy-cmd), once its SHA-256 is the one the release's SHA256SUMS names, and puts
+# that folder on your PATH; it then updates itself. On Linux: install.sh.
 #
 #   irm https://raw.githubusercontent.com/Ploppy3/heavy-cmd/main/install.ps1 | iex
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $Dir = if ($env:HEAVY_CMD_INSTALL_DIR) { $env:HEAVY_CMD_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\heavy-cmd' }
-$Url = 'https://github.com/Ploppy3/heavy-cmd/releases/latest/download/heavy-cmd-windows-x86_64.exe'
+$Release = 'https://github.com/Ploppy3/heavy-cmd/releases/latest/download'
+$Asset = 'heavy-cmd-windows-x86_64.exe'
 if (-not [Environment]::Is64BitOperatingSystem) { throw 'heavy-cmd install: heavy-cmd is built for 64-bit Windows' }
 
 $Exe = Join-Path $Dir 'heavy-cmd.exe'
 $New = Join-Path $Dir "heavy-cmd.$PID.new"
+$Sums = Join-Path $Dir "heavy-cmd.$PID.sums"
 New-Item -ItemType Directory -Force -Path $Dir | Out-Null
 Get-ChildItem -Path $Dir -Filter '*.old' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 try {
-  Invoke-WebRequest -Uri $Url -OutFile $New -UseBasicParsing
+  Invoke-WebRequest -Uri "$Release/$Asset" -OutFile $New -UseBasicParsing
+  Invoke-WebRequest -Uri "$Release/SHA256SUMS" -OutFile $Sums -UseBasicParsing
+  $Want = Get-Content $Sums | ForEach-Object {
+    $Fields = -split $_
+    if ($Fields.Count -ge 2 -and ($Fields[1] -eq $Asset -or $Fields[1] -eq "*$Asset")) { $Fields[0] }
+  } | Select-Object -First 1
+  if (-not $Want) { throw "heavy-cmd install: the release's SHA256SUMS names no $Asset" }
+  # -ne ignores case: Get-FileHash writes upper-case hex, sha256sum lower-case.
+  if ((Get-FileHash -Algorithm SHA256 -Path $New).Hash -ne $Want) {
+    throw "heavy-cmd install: $Asset does not have the SHA-256 its SHA256SUMS names: nothing installed"
+  }
   # A running heavy-cmd.exe cannot be replaced, but it can be renamed: it is removed by the next install.
   if (Test-Path $Exe) { Rename-Item -Path $Exe -NewName "heavy-cmd.$PID.old" }
   Move-Item $New $Exe
 } finally {
-  Remove-Item -Force $New -ErrorAction SilentlyContinue
+  Remove-Item -Force $New, $Sums -ErrorAction SilentlyContinue
 }
 
 # The folder on the user's PATH, kept as the registry has it (%VARIABLES% unexpanded).

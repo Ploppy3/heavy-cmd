@@ -1,5 +1,6 @@
-//! `heavy-cmd` as a process: its command lines, exits, nesting, a signal while waiting, and the smoke
-//! test: two commands in a temp home, the second waiting out the 10 s gap, and `logs` showing both.
+//! `heavy-cmd` as a process: its command lines, exits, nesting, a signal while waiting, a test build's
+//! refused update, and the smoke test: two commands in a temp home, the second waiting out the 10 s gap,
+//! and `logs` showing both.
 
 mod common;
 
@@ -25,14 +26,16 @@ fn hold(dir: &Path) -> Heavy {
 }
 
 #[test]
-fn anything_but_a_command_or_logs_prints_the_usage_and_exits_64() {
+fn anything_but_a_command_logs_or_update_prints_the_usage_and_exits_64() {
     let dir = TempDir::new("heavy-cmd-cli");
-    for args in [&[][..], &["--"], &["npm", "test"], &["--version"], &["logs", "--json"]] {
+    for args in [&[][..], &["--"], &["npm", "test"], &["--version"], &["logs", "--json"], &["update", "--check"]] {
         let out = cli(dir.path(), args, &[]);
         assert_eq!(out.status.code(), Some(64), "{args:?}");
         let usage = text(&out.stderr);
         assert!(usage.starts_with(&format!("heavy-cmd v{}: ", env!("CARGO_PKG_VERSION"))), "{usage}");
-        assert!(usage.contains("\n  heavy-cmd -- <command>...\n") && usage.contains("\n  heavy-cmd logs\n"), "{usage}");
+        for line in ["\n  heavy-cmd -- <command>...\n", "\n  heavy-cmd logs\n", "\n  heavy-cmd update\n"] {
+            assert!(usage.contains(line), "{usage}");
+        }
     }
     let out = cli(dir.path(), &["logs"], &[]);
     assert_eq!((out.status.code(), text(&out.stdout)), (Some(0), "no heavy command recorded\n".into()));
@@ -99,6 +102,16 @@ fn a_bare_program_name_is_found_with_pathext_so_a_batch_file_runs() {
     std::fs::write(dir.join("tool.cmd"), "@exit /b 7\r\n").unwrap();
     let path = format!("{};{}", dir.path().display(), std::env::var("PATH").unwrap_or_default());
     assert_eq!(cli(dir.path(), &["--", "tool", "arg"], &[("PATH", &path)]).status.code(), Some(7));
+}
+
+#[test]
+fn a_build_that_is_not_a_release_s_never_updates() {
+    let dir = TempDir::new("heavy-cmd-cli");
+    let out = cli(dir.path(), &["update"], &[]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(text(&out.stderr), "heavy-cmd: this build does not update itself: only a release's binary does\n");
+    assert_eq!(cli(dir.path(), &["--", "exit 0"], &[]).status.code(), Some(0));
+    assert!(state(dir.path()).join("heavy.db").exists() && !state(dir.path()).join("update.log").exists());
 }
 
 #[test]

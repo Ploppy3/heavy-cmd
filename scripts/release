@@ -1,7 +1,8 @@
 #!/bin/sh
 # Publishes release v<Cargo.toml's version> from this machine, with no CI: runs the checks, packs both
-# assets, pushes the tag and creates the GitHub release with them (gh). Run it on a clean main that is
-# pushed; install.sh and install.ps1 then find it.
+# binaries and their SHA256SUMS, pushes the tag and creates the GitHub release with them (gh). Run it on
+# a clean main that is pushed; install.sh and install.ps1 then find it, and every install updates itself
+# to it within an hour of its next command.
 #
 #   heavy-cmd -- scripts/release
 set -eu
@@ -25,5 +26,5 @@ scripts/check
 scripts/pack
 git tag "$tag"
 git push origin "$tag"
-gh release create "$tag" dist/heavy-cmd-linux-x86_64 dist/heavy-cmd-windows-x86_64.exe --verify-tag --title "$tag" --generate-notes
+gh release create "$tag" dist/heavy-cmd-linux-x86_64 dist/heavy-cmd-windows-x86_64.exe dist/SHA256SUMS --verify-tag --title "$tag" --generate-notes
 gh release view "$tag" --json assets --jq '.assets[].name'

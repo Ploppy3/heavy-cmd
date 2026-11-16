@@ -1,6 +1,7 @@
 use super::STOP;
 use crate::cpu::CpuTimes;
 use crate::format::now_ms;
+use std::io;
 use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -13,7 +14,10 @@ use windows_sys::Win32::System::JobObjects::{
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation, SetInformationJobObject,
 };
 use windows_sys::Win32::System::SystemInformation::GetTickCount64;
-use windows_sys::Win32::System::Threading::{GetExitCodeProcess, GetSystemTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows_sys::Win32::System::Threading::{
+    CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, GetExitCodeProcess, GetSystemTimes, OpenProcess,
+    PROCESS_QUERY_LIMITED_INFORMATION,
+};
 
 /// What a shell line runs through, as its messages name it.
 pub const SHELL: &str = "cmd.exe";
@@ -175,6 +179,44 @@ impl Drop for Running {
             unsafe { CloseHandle(self.0) };
         }
     }
+}
+
+/// Starts `command` in the background: on a console of its own that shows no window, so that neither
+/// heavy-cmd's end nor its console's closing ends it, and out of the job heavy-cmd runs in when that
+/// job allows it.
+pub fn spawn_detached(command: &mut Command) -> io::Result<()> {
+    command.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB);
+    if command.spawn().is_ok() {
+        return Ok(());
+    }
+    command.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+    command.spawn().map(drop)
+}
+
+/// Writes a program's bytes to `path`.
+pub fn write_program(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    std::fs::write(path, bytes)
+}
+
+/// Puts `new` in `bin`'s place. A running program cannot be replaced, but it can be renamed: `bin`
+/// becomes `heavy-cmd.<pid>.old`, then `new` becomes `bin`, and a failure between the two puts `bin`
+/// back. An `.old` still running stays until a later update, or install.ps1, removes it.
+pub fn replace(bin: &Path, new: &Path) -> io::Result<()> {
+    let dir = bin.parent().unwrap_or(Path::new("."));
+    for entry in std::fs::read_dir(dir)?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("heavy-cmd.") && name.ends_with(".old") {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    let old = dir.join(format!("heavy-cmd.{}.old", std::process::id()));
+    std::fs::rename(bin, &old)?;
+    if let Err(error) = std::fs::rename(new, bin) {
+        let _ = std::fs::rename(&old, bin);
+        return Err(error);
+    }
+    let _ = std::fs::remove_file(&old);
+    Ok(())
 }
 
 /// Ends this process as a console event ended the wait: `128 + n`, as on Linux.

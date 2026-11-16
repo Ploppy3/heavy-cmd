@@ -11,7 +11,9 @@ pub mod format;
 pub mod logs;
 pub mod queue;
 pub mod run;
+pub mod sha256;
 pub mod sys;
+pub mod update;
 
 /// The crates the tests reach heavy.db and the clock through.
 pub use chrono;

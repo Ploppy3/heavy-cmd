@@ -8,9 +8,9 @@ heavy-cmd -- npm run check
 
 ## Install
 
-One binary, Linux and Windows on x86_64. Run the installer again to update.
+One binary, Linux and Windows on x86_64, installed once its SHA-256 matches the release's `SHA256SUMS`. It then updates itself (see [Updates](#updates)).
 
-**Linux** (needs `curl`): installs `~/.local/bin/heavy-cmd` (`HEAVY_CMD_BIN_DIR` overrides the folder).
+**Linux** (needs `curl` and `sha256sum`): installs `~/.local/bin/heavy-cmd` (`HEAVY_CMD_BIN_DIR` overrides the folder).
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Ploppy3/heavy-cmd/main/install.sh | sh
@@ -27,6 +27,7 @@ irm https://raw.githubusercontent.com/Ploppy3/heavy-cmd/main/install.ps1 | iex
 ```
 heavy-cmd -- <command>...
 heavy-cmd logs
+heavy-cmd update
 ```
 
 Those are the only command lines it takes: anything else prints the usage, whose first line names the version, and exits `64`.
@@ -58,6 +59,12 @@ Every run is recorded once it is over, and kept 30 days. `logs` lists the last 5
 
 A command that never started is `gave up` (exit `75`) or `stopped while waiting` (`128 +` the signal). A run that cannot be recorded says so in one stderr line, and its exit stays the command's.
 
+### Updates
+
+A release's heavy-cmd updates itself. After a command ends, at most once an hour on the machine, it starts `heavy-cmd update` in the background, detached, its output in `update.log` beside `heavy.db`; the command's own output and exit are never touched, and a check that fails waits for the next hour.
+
+`heavy-cmd update` does it at once: it reads the newest release from GitHub (the tag `releases/latest` redirects to, through the system's `curl`), and when it is newer than this one, downloads the binary and the release's `SHA256SUMS`. The new binary takes the place of the one that runs only once its SHA-256 is the one `SHA256SUMS` names and, run, it names that release; anything else leaves the binary as it was and exits `1`. It never moves to an older release. A build of your own (`cargo build`) does not update itself: `heavy-cmd update` says so and exits `1`.
+
 ## Exit codes
 
 | Exit | Meaning |
@@ -65,8 +72,8 @@ A command that never started is `gave up` (exit `75`) or `stopped while waiting`
 | the command's | it ran: its own exit code, `128 + n` when signal `n` ended it; a shell line's unknown program is the shell's to report (`127` from `sh`, `9009` from `cmd.exe`) |
 | `75` | it could not start within 900 s (sysexits' `EX_TEMPFAIL`); the command never ran |
 | `127` | the program could not be started (not found, not executable) |
-| `64` | a command line other than `heavy-cmd -- <command>...` (sysexits' `EX_USAGE`) |
-| `1` | another failure of heavy-cmd's own, such as a `heavy.db` it cannot open |
+| `64` | a command line other than `heavy-cmd -- <command>...`, `logs` or `update` (sysexits' `EX_USAGE`) |
+| `1` | another failure of heavy-cmd's own, such as a `heavy.db` it cannot open or an update that failed |
 
 ## Output
 

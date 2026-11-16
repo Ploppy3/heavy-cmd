@@ -4,6 +4,7 @@ use heavy_cmd::logs::{LIMIT, clock, line, recent};
 use heavy_cmd::queue::{CPU_TARGET, ClaimOptions, Heavy, HeavyPorts, WAIT_SEC, state_dir};
 use heavy_cmd::run::{INSIDE, run_heavy, waiting_line};
 use heavy_cmd::sys;
+use heavy_cmd::update::{SELF_UPDATE, UpdatePorts, auto_update, update};
 
 const USAGE: &str = concat!(
     "heavy-cmd v",
@@ -15,16 +16,34 @@ const USAGE: &str = concat!(
       with the CPU over the last 10s under 60%; one argument runs through sh -c (cmd.exe /c on
       Windows); exits with the command's code, or 75 when it could not start within 900s
   heavy-cmd logs
-      the last 50 runs of the last 30 days, the last ended first"
+      the last 50 runs of the last 30 days, the last ended first
+  heavy-cmd update
+      move to the newest release now, once its SHA-256 matches the release's SHA256SUMS; a release's
+      heavy-cmd also does it in the background, at most once an hour, after a command ends"
 );
 
-/// Runs `command` once it may start, inside another heavy command at once, and returns its exit.
+/// Runs `command` once it may start, inside another heavy command at once, and returns its exit; then,
+/// unless a signal stopped it, the hourly update check.
 fn run(command: &[String]) -> Result<i32> {
     let inside = std::env::var_os(INSIDE).is_some_and(|id| !id.is_empty());
-    let heavy = Heavy::open(&state_dir(), HeavyPorts::machine())?;
+    let state = state_dir();
+    let heavy = Heavy::open(&state, HeavyPorts::machine())?;
     let on_wait = |status: &_| warn(&waiting_line(status, CPU_TARGET, WAIT_SEC, now_ms()));
     let mut options = ClaimOptions { on_wait: Some(Box::new(on_wait)), stop: Some(&sys::STOP), ..ClaimOptions::default() };
-    run_heavy(&heavy, command, &mut options, inside)
+    let ran = run_heavy(&heavy, command, &mut options, inside);
+    if !matches!(ran, Err(Fail::Stopped(_))) {
+        auto_update(&heavy, &state);
+    }
+    ran
+}
+
+/// `heavy-cmd update`: this binary moved to the newest release, when it is a release's.
+fn self_update() -> Result<i32> {
+    if !SELF_UPDATE {
+        return Err(Fail::Other("this build does not update itself: only a release's binary does".into()));
+    }
+    update(&UpdatePorts::github(), env!("CARGO_PKG_VERSION"), &std::env::current_exe()?, &mut |text| say(text))?;
+    Ok(0)
 }
 
 /// `heavy-cmd logs`: the recorded runs, one line each, when it ended first.
@@ -50,6 +69,7 @@ fn main() {
             ran
         }
         Some((first, [])) if first == "logs" => logs(),
+        Some((first, [])) if first == "update" => self_update(),
         _ => {
             warn(USAGE);
             std::process::exit(EX_USAGE);

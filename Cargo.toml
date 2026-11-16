@@ -1,12 +1,16 @@
 [package]
 name = "heavy-cmd"
-version = "0.3.0"
+version = "0.4.0"
 description = "Run a heavy command once the machine has room: one machine-wide queue for every agent and project."
 license = "MIT"
 repository = "https://github.com/Ploppy3/heavy-cmd"
 edition = "2024"
 rust-version = "1.99"
 publish = false
+
+[features]
+# Built into the release binaries only (scripts/pack): the self-update. Dev and test builds never update.
+self-update = []
 
 [dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }

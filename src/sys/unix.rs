@@ -2,7 +2,9 @@ use super::STOP;
 use crate::cpu::CpuTimes;
 use crate::format::now_ms;
 use std::io;
-use std::os::unix::process::ExitStatusExt;
+use std::os::unix::fs::PermissionsExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::path::Path;
 use std::process::{Child, Command, ExitStatus};
 use std::sync::atomic::{AtomicI32, Ordering};
 
@@ -121,6 +123,29 @@ impl Drop for Running {
     fn drop(&mut self) {
         CHILD.store(0, Ordering::SeqCst);
     }
+}
+
+/// Starts `command` in a session of its own, so that neither heavy-cmd's end nor its terminal's ends it.
+pub fn spawn_detached(command: &mut Command) -> io::Result<()> {
+    // SAFETY: setsid is async-signal-safe, as a pre_exec hook must be.
+    unsafe {
+        command.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    command.spawn().map(drop)
+}
+
+/// Writes a program's bytes to `path`, executable.
+pub fn write_program(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    std::fs::write(path, bytes)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+}
+
+/// Puts `new` in `bin`'s place in one rename: a heavy-cmd running meanwhile keeps the one it started with.
+pub fn replace(bin: &Path, new: &Path) -> io::Result<()> {
+    std::fs::rename(new, bin)
 }
 
 /// Ends this process by `signal`, as it would have ended the command: a shell sees `128 + n`.

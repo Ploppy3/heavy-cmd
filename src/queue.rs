@@ -226,6 +226,26 @@ impl Heavy {
         Ok(())
     }
 
+    /// Whether the update check is due, `every` ms after the last one or after a clock set back; when it
+    /// is, it counts as done now, in one write transaction: of the heavy-cmds that end at once, one checks.
+    pub fn update_due(&self, every: i64) -> Result<bool> {
+        let now = self.now();
+        self.db.execute_batch("BEGIN IMMEDIATE")?;
+        let due = (|| {
+            let last: Option<i64> =
+                self.db.query_row("SELECT value FROM meta WHERE key = 'update_check'", [], |row| row.get(0)).optional()?;
+            let due = last.is_none_or(|last| now - last >= every || last > now);
+            if due {
+                self.db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('update_check', ?1)", [now])?;
+            }
+            Ok::<bool, Fail>(due)
+        })();
+        let ended = self.db.execute_batch(if due.is_ok() { "COMMIT" } else { "ROLLBACK" });
+        let due = due?;
+        ended?;
+        Ok(due)
+    }
+
     /// The running commands, the waiters and the CPU usage, keeping a sample as it reads.
     pub fn status(&self) -> Result<HeavyStatus> {
         let cpu = cpu::measure(&self.db, self.now(), (self.ports.sample)())?;
